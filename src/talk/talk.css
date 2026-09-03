@@ -1,0 +1,137 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --panel: #12151c;
+  --line: #232833;
+  --text: #d7dbe4;
+  --dim: #98a1b3;
+  --faint: #7d8697;
+  --accent: #7fb4ff;
+  --good: #8fdc9a;
+  --warm: #ffb26b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+}
+
+#deck { height: 100%; }
+
+/* One centred column: every child shares a left edge, whatever its own width. */
+.slide {
+  display: none;
+  height: 100%;
+  padding: 56px max(48px, calc((100% - 1100px) / 2)) 76px;
+  overflow-y: auto;
+}
+
+.slide.active { display: block; }
+
+h1 { font-size: 44px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.5px; }
+h2 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.3px; }
+h3 { font-size: 16px; margin: 28px 0 6px; color: var(--accent); font-weight: 600; }
+
+.lead { color: var(--dim); font-size: 18px; margin: 0 0 28px; max-width: 80ch; }
+p { color: var(--dim); max-width: 82ch; }
+a { color: var(--accent); }
+.link { font-size: 22px; margin: 0 0 24px; }
+
+/* Pointer to whichever demo shows the slide you are on. */
+.demo {
+  border-left: 3px solid var(--accent);
+  padding-left: 14px;
+  margin-top: 24px;
+  color: var(--faint);
+  font-size: 14px;
+}
+b, strong { color: #fff; font-weight: 600; }
+code { color: var(--warm); }
+
+ul { color: var(--dim); padding-left: 20px; max-width: 82ch; }
+li { margin: 8px 0; }
+li b { color: #fff; }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px 18px;
+}
+.card h3 { margin-top: 0; }
+.card p, .card ul { margin-bottom: 0; font-size: 14px; }
+
+.tag {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--faint);
+  font-size: 12px;
+  margin: 0 6px 6px 0;
+}
+
+pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow: auto;
+  color: #b9c2d3;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 12px 0;
+}
+pre .cap {
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+
+table { border-collapse: collapse; width: 100%; margin-top: 12px; font-size: 14px; }
+th, td { text-align: left; padding: 9px 20px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--accent); font-weight: 600; }
+td { color: var(--dim); }
+td:first-child { color: #fff; white-space: nowrap; }
+
+svg { max-width: 100%; height: auto; display: block; margin: 16px 0; }
+svg text { font: 12px ui-monospace, Menlo, monospace; fill: var(--dim); }
+svg .box { fill: var(--panel); stroke: var(--line); }
+svg .lane { fill: #16202f; stroke: #2c3648; }
+svg .label { fill: #fff; font-size: 13px; }
+svg .flow { stroke: #3a4351; fill: none; }
+
+footer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: rgba(11, 13, 18, .92);
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--faint);
+}
+footer button {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+footer button:disabled { color: #4a505d; cursor: default; }
+footer .grow { flex: 1; }
+#bar { position: fixed; left: 0; top: 0; height: 2px; background: var(--accent); transition: width .15s; }

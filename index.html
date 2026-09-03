@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebGPU cubes</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0d12; color: #d7dbe4;
+        font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud { position: fixed; top: 12px; left: 12px; padding: 8px 12px;
+        background: rgba(0,0,0,.45); border: 1px solid #232833; border-radius: 6px;
+        pointer-events: none; white-space: pre; }
+      #panel { position: fixed; top: 12px; right: 12px; padding: 8px 12px; display: flex; gap: 16px;
+        align-items: center; background: rgba(0,0,0,.45); border: 1px solid #232833; border-radius: 6px; }
+      #panel a { color: #7fb4ff; }
+      #panel label { cursor: pointer; user-select: none; }
+      #error { position: fixed; inset: 0; display: none; place-content: center;
+        padding: 40px; text-align: center; color: #ff8f8f; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu-canvas"></canvas>
+    <div id="hud"></div>
+    <div id="panel">
+      <label><input type="checkbox" id="msaa" checked /> 4x MSAA</label>
+      <a href="/talk/">talk</a>
+      <a href="/compute/">compute example</a>
+    </div>
+    <div id="error"></div>
+    <script type="module" src="/src/render/main.ts"></script>
+  </body>
+</html>

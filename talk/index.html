@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGPU, a talk</title>
+</head>
+
+<body>
+  <div id="bar"></div>
+  <div id="deck">
+
+    <section class="slide" data-title="Title">
+      <h1>WebGPU</h1>
+      <p class="lead">Running code on the graphics card, from a browser tab, in TypeScript.</p>
+      <p>
+        There are diagrams throughout and two live demos running alongside: a page of spinning
+        cubes for the drawing half, and a compute page that races the same maths on the GPU and the
+        CPU. Both are linked in the footer and open in another tab, so nothing here is a surprise.
+        Go and break them whenever you like.
+      </p>
+      <h3>The words, up front</h3>
+      <p>Every term on the next 18 slides, in one place. Come back here whenever one stops
+        making sense.</p>
+      <table>
+        <tr>
+          <th>Word</th>
+          <th>What it means</th>
+        </tr>
+        <tr>
+          <td>GPU</td>
+          <td>A chip that runs thousands of tiny programs at once, instead of a few fast ones.</td>
+        </tr>
+        <tr>
+          <td>WebGPU</td>
+          <td>The browser's API for talking to that chip. A standard, not a library.</td>
+        </tr>
+        <tr>
+          <td>WGSL</td>
+          <td>The separate language GPU programs are written in. Reads a lot like Rust.</td>
+        </tr>
+        <tr>
+          <td>Shader</td>
+          <td>One of those programs. The name comes from the one that picks colours.</td>
+        </tr>
+        <tr>
+          <td>Vertex</td>
+          <td>One corner of a triangle. Every 3D model is a pile of these.</td>
+        </tr>
+        <tr>
+          <td>Vertex shader</td>
+          <td>Runs once per corner. Works out where that corner lands on screen.</td>
+        </tr>
+        <tr>
+          <td>Rasterizer</td>
+          <td>Fixed hardware between the two shaders. Works out which pixels a triangle covers.</td>
+        </tr>
+        <tr>
+          <td>Fragment</td>
+          <td>A pixel a triangle might colour. Might, because something could be in front of it.</td>
+        </tr>
+        <tr>
+          <td>Fragment shader</td>
+          <td>Runs once per fragment. Works out what colour it is.</td>
+        </tr>
+        <tr>
+          <td>Texture</td>
+          <td>An image sitting in GPU memory that a shader reads from.</td>
+        </tr>
+        <tr>
+          <td>Compute shader</td>
+          <td>Same idea, no triangles and no screen. A grid of threads over data you choose.</td>
+        </tr>
+        <tr>
+          <td>Thread</td>
+          <td>One run of a shader. It asks for its own id and handles that one element.</td>
+        </tr>
+        <tr>
+          <td>Workgroup</td>
+          <td>A block of threads that run together and share a small block of very fast memory.</td>
+        </tr>
+        <tr>
+          <td>Dispatch</td>
+          <td>The call that launches a number of workgroups. Where compute work starts.</td>
+        </tr>
+        <tr>
+          <td>Buffer</td>
+          <td>A slab of GPU memory. Your data crosses into one of these as raw bytes.</td>
+        </tr>
+        <tr>
+          <td>Bind group</td>
+          <td>The wiring that connects your buffers to the slots a shader declares.</td>
+        </tr>
+        <tr>
+          <td>Pipeline</td>
+          <td>A shader plus its inputs and output format, built and checked once up front.</td>
+        </tr>
+        <tr>
+          <td>Encoder</td>
+          <td>Where commands are recorded, so they can be submitted in one go.</td>
+        </tr>
+      </table>
+    </section>
+
+    <section class="slide" data-title="What is WebGPU">
+      <h2>What is WebGPU</h2>
+      <p class="lead">A browser API for talking to the GPU directly.</p>
+      <ul>
+        <li><b>It is a standard.</b> A W3C spec, not a library. Shipping in Chrome and Edge 113+, Firefox 141+ and
+          Safari 26+.</li>
+        <li><b>It is a thin layer.</b> Your calls map onto Vulkan on Linux and Android, Metal on Apple, D3D12 on
+          Windows. The browser translates, it does not emulate.</li>
+        <li><b>It does two jobs.</b> Draw pictures, and run arbitrary maths. The second one is the new part.</li>
+        <li><b>Shaders are a separate language.</b> WGSL, a small typed language that compiles to whatever the driver
+          wants.</li>
+        <li><b>WGSL reads like Rust.</b> The syntax is openly borrowed from it: <code>fn</code>, <code>let</code> and
+          <code>var</code>, the type after the name, <code>-&gt;</code> for the return type, sized primitives like
+          <code>f32</code> and <code>u32</code>, and <code>@vertex</code> attributes in the place Rust puts
+          <code>#[derive]</code>. That is not a coincidence, and it comes up again at the end.
+        </li>
+      </ul>
+      <h3>TDLR:</h3>
+      <p>
+        You upload data into GPU memory, you write a small program that runs on thousands of threads
+        at once, and you hand the GPU a list of commands. Everything else is detail.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Why not WebGL">
+      <h2>Why not just WebGL</h2>
+      <p class="lead">WebGL is OpenGL ES from 2007 wearing a browser hat.</p>
+      <table>
+        <tr>
+          <th></th>
+          <th>WebGL</th>
+          <th>WebGPU</th>
+        </tr>
+        <tr>
+          <td>Compute</td>
+          <td>None. Fake it by drawing to a texture and reading pixels back.</td>
+          <td>First class. Compute shaders with no rendering involved.</td>
+        </tr>
+        <tr>
+          <td>State</td>
+          <td>One giant global state machine. Bind, set, hope.</td>
+          <td>Explicit objects. A pipeline is built once and validated once.</td>
+        </tr>
+        <tr>
+          <td>Checking</td>
+          <td>Every draw call, while the frame is running.</td>
+          <td>Once, when you build the pipeline.</td>
+        </tr>
+        <tr>
+          <td>Submission</td>
+          <td>Immediate, one call at a time.</td>
+          <td>Record a command buffer, submit it in one go.</td>
+        </tr>
+        <tr>
+          <td>Errors</td>
+          <td>Numeric codes you poll for.</td>
+          <td>Promises, labels and readable messages.</td>
+        </tr>
+      </table>
+      <p>The practical difference: WebGPU is faster to feed, and it lets you use the GPU for work that has nothing to do
+        with pixels.</p>
+    </section>
+
+    <section class="slide" data-title="CPU vs GPU">
+      <h2>What a GPU actually is</h2>
+      <p class="lead">Not a faster CPU. A differently shaped one.</p>
+      <div class="cols">
+        <div class="card">
+          <h3>CPU</h3>
+          <ul>
+            <li>8 to 32 cores, each very fast</li>
+            <li>Huge caches, deep branch prediction</li>
+            <li>Optimised for <b>latency</b>: finish one thing quickly</li>
+            <li>Happy with branches, pointers, irregular work</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>GPU</h3>
+          <ul>
+            <li>Thousands of narrow lanes, each fairly slow</li>
+            <li>Tiny caches, no branch prediction worth the name</li>
+            <li>Optimised for <b>throughput</b>: finish a million things eventually</li>
+            <li>Lanes move in step with each other, so an <code>if</code> that sends some lanes one way and some the
+              other makes the whole group run both sides</li>
+          </ul>
+        </div>
+      </div>
+      <h3>The test for whether the GPU will help</h3>
+      <p>
+        Same instructions, different data, and no element needs to know what any other element is
+        doing. Shading a pixel passes. Walking a linked list fails. If the work does not have that
+        shape, the GPU will lose, and the cost of moving the data across will make it lose badly.
+      </p>
+      <p class="demo">
+        See it: <a href="/compute/">the compute page</a> runs the same Mandelbrot maths on the GPU and
+        the CPU so you can time both.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Mental model">
+      <h2>The mental model</h2>
+      <p class="lead">You do not call the GPU. You post it a job and walk away.</p>
+      <ul>
+        <li><b>Separate memory.</b> The GPU cannot see your JavaScript objects. Everything crosses as raw bytes in a
+          buffer you allocate.</li>
+        <li><b>Separate program.</b> Your shader is compiled source text in another language. It cannot call your
+          functions, print, or allocate.</li>
+        <li><b>Asynchronous.</b> You record commands into an encoder and submit them. Nothing has happened yet when
+          submit returns.</li>
+        <li><b>Reading back is expensive.</b> Getting results into JavaScript means a copy plus an await. Push work to
+          the GPU, keep it there, only pull back what you must.</li>
+      </ul>
+      <h3>Every GPU program, in six steps</h3>
+      <ul>
+        <li>Get a device</li>
+        <li>Create buffers and write your data in</li>
+        <li>Compile a shader module</li>
+        <li>Build a pipeline: this shader, these inputs, this output format</li>
+        <li>Record commands into an encoder and submit them</li>
+        <li>Draw to the canvas, or copy results back</li>
+      </ul>
+    </section>
+
+    <section class="slide" data-title="Render pipeline">
+      <h2>The render pipeline</h2>
+      <p class="lead">Two stages are yours to write. The rest is fixed hardware.</p>
+      <svg viewBox="0 0 1040 130" role="img" aria-label="Render pipeline stages">
+        <g>
+          <rect class="box" x="0" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="12" y="52">vertex data</text><text x="12" y="70">buffers</text>
+          <rect class="lane" x="178" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="190" y="52">vertex shader</text><text x="190" y="70">you write this</text>
+          <rect class="box" x="356" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="368" y="52">rasterizer</text><text x="368" y="70">fixed function</text>
+          <rect class="lane" x="534" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="546" y="52">fragment shader</text><text x="546" y="70">you write this</text>
+          <rect class="box" x="712" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="724" y="52">depth, blend</text><text x="724" y="70">fixed function</text>
+          <rect class="box" x="890" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="902" y="52">canvas</text><text x="902" y="70">pixels on screen</text>
+        </g>
+        <g class="flow" stroke-width="1.5">
+          <path d="M150 56 h28" />
+          <path d="M328 56 h28" />
+          <path d="M506 56 h28" />
+          <path d="M684 56 h28" />
+          <path d="M862 56 h28" />
+        </g>
+        <text x="190" y="105">once per vertex</text>
+        <text x="546" y="105">once per covered pixel</text>
+      </svg>
+      <p>
+        One <code>drawIndexed</code> call runs this whole chain. For the cubes demo that is 24 vertices
+        of geometry, replayed once per instance, turned into up to about 2 million fragment
+        invocations on a 1080p screen.
+      </p>
+      <p class="demo">
+        See it: <a href="/">the cubes</a> are this whole chain, once per frame.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Vertex shader">
+      <h2>Vertex shader</h2>
+      <p class="lead">Runs once per vertex. Answers one question: where is this point on screen.</p>
+      <ul>
+        <li><b>A vertex is one corner of a triangle.</b> Usually a position in 3D space with some extra data attached,
+          such as which way the surface faces.</li>
+        <li><b>In:</b> one vertex out of your buffers, plus any values that are the same for the whole draw, like where
+          the camera is.</li>
+        <li><b>Out:</b> where that corner lands on the screen, which is required, plus anything you want the fragment
+          shader to have later.</li>
+        <li><b>Cheap,</b> because there are not many corners. A cube has 24. A detailed character has tens of thousands.
+        </li>
+        <li><b>One shape, drawn many times.</b> The cubes demo stores a single cube and replays those same 24 corners
+          once per cube, each replay carrying its own position, size and colour. That is how one draw call puts every
+          cube on screen.</li>
+      </ul>
+      <pre data-src="src/render/shaders/cube.wgsl" data-symbol="vertexMain"></pre>
+      <p class="demo">
+        See it: fly around <a href="/">the cubes</a>. Every cube on screen comes out of this function.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Rasterizer">
+      <h2>The rasterizer, in between</h2>
+      <p class="lead">The step between the two shaders. You cannot change it, but the fragment shader makes no sense
+        until you know what it does.</p>
+      <ul>
+        <li><b>Everything you draw is triangles.</b> A cube is 12 of them. A character is thousands. The vertex shader
+          has just told the GPU where each of a triangle's three corners landed on the screen.</li>
+        <li><b>It fills in the middle.</b> Given those three corners, it works out which screen pixels the triangle
+          actually covers, and hands each one to the fragment shader.</li>
+        <li><b>Those pixels are called fragments.</b> A fragment is a pixel the triangle <em>might</em> colour. Might,
+          because another triangle could turn out to be in front of it.</li>
+        <li><b>It blends corner values across the middle, free.</b> Colour the three corners red, green and blue, and a
+          point a third of the way in gets a third of each. The same happens to every other value the vertex shader
+          attached, and it costs nothing because the hardware does it.</li>
+        <li><b>It can drop triangles facing away from you.</b> On a solid object, half the triangles are round the back
+          where you will never see them. Throwing those out is half the work gone.</li>
+      </ul>
+      <p>
+        This is where the numbers explode. You feed in thousands of corners and get back millions of
+        pixels to colour. Anything expensive is far cheaper in the vertex shader, where it runs
+        thousands of times instead of millions.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Fragment shader">
+      <h2>Fragment shader</h2>
+      <p class="lead">Runs once per covered pixel. Answers one question: what colour.</p>
+      <ul>
+        <li><b>In:</b> the blended values the rasterizer handed over, plus shared values and any textures.</li>
+        <li><b>Out:</b> a colour. That is usually the whole job.</li>
+        <li><b>Expensive,</b> because this is where your frame time goes. Millions of runs, every frame, 60 times a
+          second.</li>
+        <li><b>Blind.</b> It cannot see the pixel next to it, or what was already on screen there. It gets its own
+          inputs and nothing else.</li>
+      </ul>
+      <p>
+        Per pixel, the cube demo works out light coming from the sky and bouncing off the ground,
+        direct light from the sun, a highlight where the sun reflects towards the camera, and a
+        brightness correction at the end so the mid-tones do not look muddy.
+      </p>
+      <pre data-src="src/render/shaders/cube.wgsl" data-symbol="fragmentMain"></pre>
+      <p class="demo">
+        See it: the <a href="/">MSAA toggle</a> on the cubes page changes how many times this runs
+        per pixel.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Compute shader">
+      <h2>Compute shader</h2>
+      <p class="lead">No triangles, no pixels, no canvas. A grid of threads over data you choose.</p>
+      <ul>
+        <li>You declare a <b>workgroup size</b> in the shader, and dispatch a number of <b>workgroups</b> from
+          TypeScript.</li>
+        <li>Each thread asks for its own id and uses it to index the data. Thread 7 handles element 7.</li>
+        <li>You can only dispatch whole workgroups, so if 20 items need 8 threads each you get 24 threads and 4 spare.
+          Every compute shader starts by checking whether it ran off the end of the data, and exiting if it did.</li>
+        <li><b>Every thread in a workgroup can talk to every other one in that workgroup.</b> They share a small block
+          of very fast memory that only they can see, so any thread can write a value and any other thread in the group
+          can read it. They can also wait for each other: hit a barrier and nobody moves on until all of them have
+          arrived. That is the whole point of grouping threads at all.</li>
+        <li><b>Across workgroups there is nothing.</b> No shared memory, no waiting, no ordering. Workgroup 2 may finish
+          before workgroup 0 starts. If two threads in different groups need to agree on something, that is a second
+          dispatch.</li>
+        <li>This is the one exception to the rule from earlier that no element knows what any other element is doing. It
+          is what makes a sum, a sort or a prefix scan possible on a GPU at all, since each of those needs threads to
+          combine their results with each other.</li>
+      </ul>
+      <svg id="workgroups" role="img" aria-label="Elements split across workgroups of threads"></svg>
+      <pre data-src="src/compute/shaders/square.wgsl" data-symbol="square"></pre>
+      <p class="demo">
+        See it: <a href="/compute/">the compute page</a> prints which workgroup and which thread
+        produced every single result.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Three stages">
+      <h2>The three stages side by side</h2>
+      <table>
+        <tr>
+          <th></th>
+          <th>Vertex</th>
+          <th>Fragment</th>
+          <th>Compute</th>
+        </tr>
+        <tr>
+          <td>Runs once per</td>
+          <td>corner of a triangle</td>
+          <td>pixel a triangle covers</td>
+          <td>thread you ask for</td>
+        </tr>
+        <tr>
+          <td>How many that is</td>
+          <td>your model's detail</td>
+          <td>how much screen the shape fills</td>
+          <td>exactly what you asked for</td>
+        </tr>
+        <tr>
+          <td>Hands its result to</td>
+          <td>the rasterizer</td>
+          <td>the screen</td>
+          <td>a buffer you allocated</td>
+        </tr>
+        <tr>
+          <td>Typical scale</td>
+          <td>thousands</td>
+          <td>millions</td>
+          <td>whatever you want</td>
+        </tr>
+        <tr>
+          <td>Needs a canvas</td>
+          <td>yes</td>
+          <td>yes</td>
+          <td>no</td>
+        </tr>
+        <tr>
+          <td>Can talk to its neighbours</td>
+          <td>no</td>
+          <td>no</td>
+          <td>yes, inside a workgroup</td>
+        </tr>
+      </table>
+      <h3>Vertex and fragment are locked together</h3>
+      <p>
+        You never get one without the other. They are two halves of the same pipeline and always run
+        as a pair. Compute is separate, and the useful trick is chaining them: a compute pass writes
+        results into a buffer, then a vertex shader reads that buffer and draws them. That is how
+        particle systems work, and how a game decides on the GPU what is worth drawing at all before
+        drawing any of it.
+      </p>
+    </section>
+
+    <section class="slide" data-title="TypeScript side">
+      <h2>Where TypeScript comes in</h2>
+      <p class="lead">TypeScript is the manager. It can do the maths, it just should not do the heavy maths.</p>
+      <ul>
+        <li><b>Allocate and upload.</b> Pack numbers into a <code>Float32Array</code>, create a <code>GPUBuffer</code>,
+          write the bytes across.</li>
+        <li><b>Describe.</b> A pipeline object says which shader, which entry points, what the vertex layout is, what
+          format the output is.</li>
+        <li><b>Bind.</b> A bind group connects your buffers to the <code>@group</code> and <code>@binding</code> slots
+          the shader declares.</li>
+        <li><b>Record and submit.</b> An encoder collects a pass worth of commands, <code>queue.submit</code> hands them
+          over.</li>
+        <li><b>Types are real.</b> <code>@webgpu/types</code> means a wrong usage flag or a missing field is a compile
+          error, not a black screen.</li>
+        <li><b>Some maths stays here.</b> The cube demo builds its view projection matrix and every instance matrix in
+          TypeScript each frame. That is a few hundred numbers, which is nothing. The split is not maths against no
+          maths, it is a bounded amount of setup against millions of identical operations.</li>
+      </ul>
+      <pre data-src="src/shared/gpu.ts" data-symbol="requestDevice"></pre>
+      <pre data-src="src/render/pipeline.ts" data-symbol="createCubePipeline"></pre>
+    </section>
+
+    <section class="slide" data-title="The boundary">
+      <h2>The awkward bits at the boundary</h2>
+      <p class="lead">Two languages, two memory spaces, and nothing checks that they agree.</p>
+      <ul>
+        <li><b>Layout is manual.</b> A WGSL struct has alignment rules. The <code>Globals</code> block in the cube demo
+          is a
+          <code>mat4x4f</code> and two <code>vec3f</code>, and it takes 96 bytes because each <code>vec3f</code> pads
+          out to 16. Get it wrong and you read garbage, silently.
+        </li>
+        <li><b>Matrices split.</b> A <code>mat4x4f</code> vertex attribute is four slots, one per column, which is why
+          the instance layout runs from <code>@location(2)</code> to <code>@location(5)</code>.</li>
+        <li><b>Reading back is a ritual.</b> Storage buffers are not CPU readable. Copy into a buffer created with
+          <code>MAP_READ</code>, <code>await mapAsync</code>, take the bytes, unmap.
+        </li>
+        <li><b>Same bytes, two views.</b> The square demo reads one buffer as both <code>Float32Array</code> and
+          <code>Uint32Array</code>, because the value is a float and the thread ids are integers.
+        </li>
+      </ul>
+      <pre data-src="src/shared/gpu.ts" data-symbol="createBufferWithData"></pre>
+      <p class="demo">
+        See it: the compute page's <a href="/compute/">GPU timings</a> are split into maths only and
+        maths plus readback, because the gap between them is the point.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Why it matters">
+      <h2>Why this is worth caring about</h2>
+      <p class="lead">Every machine already has this hardware. Until now the web could only use it for pictures.</p>
+      <div class="cols">
+        <div class="card">
+          <h3>Data visualisation</h3>
+          <p>
+            Canvas and SVG fall over somewhere around tens of thousands of marks. The GPU draws
+            millions of points, edges or map features at 60 frames per second, and can do the layout,
+            binning and filtering in a compute pass first. This is why deck.gl and the big charting
+            libraries went this way.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Heavy data processing</h3>
+          <p>
+            Filtering, aggregating, sorting, image and signal processing, physics. Anything you would
+            write as a loop over a big flat array is a candidate. The compute demo runs the same
+            Mandelbrot maths on both sides so you can watch the gap.
+          </p>
+        </div>
+        <div class="card">
+          <h3>AI</h3>
+          <p>
+            Inference is matrix multiplication, which is the most GPU shaped workload there is.
+            WebGPU is the backend that lets ONNX Runtime Web, transformers.js and WebLLM run models
+            locally, with no server, no upload, and data that never leaves the machine.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Games and 3D</h3>
+          <p>
+            Real engine features rather than a toy: instancing, compute driven particles and culling,
+            modern shading. Unity, Unreal and Godot all target WebGPU for web builds.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Simulation and digital twins</h3>
+          <p>
+            Fluids, cloth, crowds, N body, cellular automata. Thousands of independent elements
+            stepped in parallel, kept in GPU memory between frames and drawn without ever coming back
+            to the CPU.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Media</h3>
+          <p>
+            Video effects, colour grading, upscaling, computer vision on a webcam feed. Per pixel work
+            at frame rate that a CPU cannot keep up with.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-title="Bevy">
+      <h2>Bevy and WebGPU</h2>
+      <p class="lead">Same standard, different language, one shared implementation underneath.</p>
+      <ul>
+        <li><b>Bevy is a framework, not an engine</b> in the Unity or Unreal sense. There is no editor, no scene tree to
+          click around, no asset browser. You write a Rust program, pull in the plugins you want, and it is your
+          <code>main</code> that runs. Structurally it is closer to raylib: a set of building blocks handed to you, not
+          an application you author content inside.
+        </li>
+        <li><b>It is built on an entity component system.</b> Entities are bundles of plain data and systems are
+          functions that run over them, which is the same data oriented shape the GPU wants.</li>
+        <li><b>Its renderer is wgpu.</b> wgpu is the Rust implementation of the WebGPU standard. Natively it targets
+          Vulkan, Metal and D3D12. In a browser it hands straight through to the browser's WebGPU. Firefox's own WebGPU
+          implementation is wgpu.</li>
+        <li><b>Bevy shaders are WGSL.</b> The exact language on the previous slides. A vertex, fragment or compute
+          shader written for this demo is the same language you write in Bevy, and since WGSL took its syntax from Rust,
+          the shaders and the code around them stop looking like two different worlds.</li>
+        <li><b>It compiles to WebAssembly.</b> One codebase runs natively and in a tab, with a WebGL2 backend as the
+          fallback where WebGPU is missing.</li>
+      </ul>
+      <h3>Where the link actually comes from</h3>
+      <p>
+        Bevy and WebGPU are not two projects that happen to get on. They meet at wgpu, and wgpu
+        exists because Mozilla needed a WebGPU implementation for Firefox and wrote one in Rust.
+        That implementation is a normal Rust crate, so Rust code can use it directly rather than
+        going through a browser. Bevy's renderer is built on it. So the standard on these slides is
+        the thing shipping inside Firefox, and it is also the thing running a native Bevy game with
+        no browser anywhere near it.
+      </p>
+      <p>
+        Which means the model carries over one for one. Devices, buffers, bind groups, pipelines,
+        encoders and passes are the same objects with the same names. The last slide is a Bevy
+        project pushing that model about as far as it goes.
+      </p>
+    </section>
+
+    <section class="slide" data-title="On a server">
+      <h2>The same thing on a server</h2>
+      <p class="lead">No browser, no window, no screen. wgpu on a rack machine with a GPU in it.</p>
+      <svg viewBox="0 0 1040 130" role="img" aria-label="Request path through a headless wgpu service">
+        <g>
+          <rect class="box" x="0" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="12" y="52">request</text><text x="12" y="70">bytes in</text>
+          <rect class="lane" x="178" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="190" y="52">handler</text><text x="190" y="70">you write this</text>
+          <rect class="box" x="356" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="368" y="52">device, queue</text><text x="368" y="70">built once at boot</text>
+          <rect class="lane" x="534" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="546" y="52">compute pass</text><text x="546" y="70">you write this</text>
+          <rect class="box" x="712" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="724" y="52">staging buffer</text><text x="724" y="70">map, read, unmap</text>
+          <rect class="box" x="890" y="30" width="150" height="52" rx="7" />
+          <text class="label" x="902" y="52">response</text><text x="902" y="70">bytes out</text>
+        </g>
+        <g class="flow" stroke-width="1.5">
+          <path d="M150 56 h28" />
+          <path d="M328 56 h28" />
+          <path d="M506 56 h28" />
+          <path d="M684 56 h28" />
+          <path d="M862 56 h28" />
+        </g>
+        <text x="368" y="105">shared by all requests</text>
+        <text x="546" y="105">once per request</text>
+      </svg>
+      <ul>
+        <li><b>It is the same crate.</b> wgpu from the previous slide, targeting Vulkan directly with no
+          browser anywhere near it. The objects keep their names.</li>
+        <li><b>Headless is not a mode, it is just leaving something out.</b> You ask for an adapter with no
+          surface attached. Nothing opens a window because nothing was ever going to draw.</li>
+        <li><b>The device is built once and shared.</b> Creating it costs hundreds of milliseconds, so it
+          happens at startup and every request borrows it. Buffers get pooled the same way. Per request
+          you only record an encoder and submit it.</li>
+        <li><b>Reading back is the same ritual.</b> Copy into a mappable buffer, await the map, take the
+          bytes, unmap. The same four steps as the compute page, and still the expensive part.</li>
+        <li><b>The awkward bit is the container, not the code.</b> NVIDIA's container runtime mounts CUDA by
+          default and not the Vulkan driver, so a machine with a perfectly good card reports no adapter at
+          all. <code>NVIDIA_DRIVER_CAPABILITIES</code> has to include <code>graphics</code>.</li>
+        <li><b>Where it stops.</b> No cuBLAS, no tensor cores, no f64. For kernels you wrote yourself it is
+          fine. For training or serving a model, CUDA still wins and it is not close.</li>
+      </ul>
+      <h3>Which is the Bevy point, one step further out</h3>
+      <p>
+        Devices, buffers, bind groups, pipelines and passes are the same objects with the same names
+        whether they are in a tab, in a game, or behind an HTTP handler on a machine with no screen
+        plugged into it. The vocabulary from the last sixteen slides is the whole of it.
+      </p>
+    </section>
+
+    <section class="slide" data-title="Recap">
+      <h2>Recap</h2>
+      <ul>
+        <li>WebGPU is the browser's direct line to the graphics card, and a standard rather than a library.</li>
+        <li>GPUs win on identical work spread over huge amounts of independent data, and lose on everything else.</li>
+        <li><b>Vertex</b> shaders place points, <b>fragment</b> shaders colour pixels, <b>compute</b> shaders do
+          whatever you want with no canvas involved.</li>
+        <li>TypeScript allocates, describes, binds and submits, and does whatever small maths it wants. The bulk work
+          goes to WGSL.</li>
+        <li>The hard parts are at the boundary: byte layout, alignment, and the cost of reading anything back.</li>
+        <li>The same model turns up again in wgpu, in Bevy and on a headless server, so none of it is
+          wasted.</li>
+      </ul>
+      <h3>Go and poke at it</h3>
+      <p>
+        <a href="/">The cubes</a>, and <a href="/compute/">the compute page</a>. Reference material is
+        the <a href="https://webgpu.github.io/webgpu-samples/">WebGPU samples</a> and the
+        <a href="https://www.w3.org/TR/webgpu/">spec</a>.
+      </p>
+    </section>
+
+    <section class="slide" data-title="My game">
+      <h2>My game</h2>
+      <p class="lead">Everything on the last 16 slides, in one game.</p>
+      <p class="link"><a href="https://staging.artoshia.com">staging.artoshia.com</a></p>
+      <div class="cols">
+        <div class="card">
+          <h3>Water</h3>
+          <p>
+            An <b>FFT</b> ocean for the open water and <b>Gerstner</b> waves for the shore and the
+            mainland, plus a <b>wake simulation</b> that reacts to what is moving through it. All of
+            it compute, stepped every frame, never touching the CPU.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Terrain</h3>
+          <p>
+            <b>Generated in compute</b> rather than authored, and <b>GPU driven</b> on the way out
+            too. The card decides what to draw, not a loop on the CPU handing it one mesh at a time.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Vegetation</h3>
+          <p>
+            <b>Foliage and tree rendering</b> at a density you cannot reach by issuing one draw call
+            per plant. This is the instancing slide, several orders of magnitude further along.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Custom pipelines</h3>
+          <p>
+            Bespoke <b>render pipelines</b> for the geometry, rather than everything going through
+            one generic material path. Same objects as slide 12, hand built per job.
+          </p>
+        </div>
+        <div class="card">
+          <h3>LOD everywhere</h3>
+          <p>
+            <b>Many separate LOD systems</b>, because the fragment stage is the thing that runs out
+            first. Detail you cannot see is detail you do not pay for.
+          </p>
+        </div>
+        <div class="card">
+          <h3>The point</h3>
+          <p>
+            Vertex, fragment and compute, WGSL, buffers and bind groups. The vocabulary does not
+            change between a page of cubes and this. Only the scale does.
+          </p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <button id="prev">prev</button>
+    <button id="next">next</button>
+    <span id="counter"></span>
+    <span class="grow" id="slide-title"></span>
+    <a href="/">cubes</a>
+    <a href="/compute/">compute</a>
+    <a href="https://staging.artoshia.com">artoshia</a>
+  </footer>
+
+  <script type="module" src="/src/talk/main.ts"></script>
+</body>
+
+</html>

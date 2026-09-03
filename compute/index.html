@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WebGPU compute</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      margin: 0;
+      padding: 32px;
+      background: #0b0d12;
+      color: #d7dbe4;
+      font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 20px;
+      margin: 0 0 4px;
+    }
+
+    h2 {
+      font-size: 16px;
+      margin: 40px 0 4px;
+      border-top: 1px solid #232833;
+      padding-top: 24px;
+    }
+
+    p {
+      color: #98a1b3;
+      max-width: 70ch;
+    }
+
+    a {
+      color: #7fb4ff;
+    }
+
+    button {
+      font: inherit;
+      padding: 10px 18px;
+      border-radius: 6px;
+      border: 1px solid #3a4a6b;
+      background: #2a6df4;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #1b2130;
+      border-color: #333a4a;
+      color: #d7dbe4;
+    }
+
+    button:disabled {
+      background: #2b3140;
+      border-color: #2b3140;
+      color: #6b7383;
+      cursor: default;
+    }
+
+    select {
+      font: inherit;
+      padding: 8px;
+      background: #12151c;
+      color: #d7dbe4;
+      border: 1px solid #232833;
+      border-radius: 6px;
+    }
+
+    label {
+      color: #98a1b3;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin: 12px 0;
+    }
+
+    .chip {
+      padding: 4px 10px;
+      border: 1px solid #232833;
+      border-radius: 5px;
+      background: #12151c;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px;
+      margin-top: 16px;
+    }
+
+    .cell {
+      border: 1px solid #232833;
+      border-left: 4px solid var(--group);
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #12151c;
+    }
+
+    .cell b {
+      font-size: 16px;
+      color: #fff;
+    }
+
+    .meta {
+      color: #7d8697;
+      font-size: 12px;
+    }
+
+    .status {
+      min-height: 24px;
+      color: #8fdc9a;
+      white-space: pre-line;
+    }
+
+    .error {
+      color: #ff8f8f;
+    }
+
+    #canvas {
+      width: 512px;
+      max-width: 100%;
+      image-rendering: pixelated;
+      border: 1px solid #232833;
+      border-radius: 6px;
+      background: #12151c;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    td,
+    th {
+      text-align: left;
+      padding: 6px 24px 6px 0;
+      border-bottom: 1px solid #232833;
+    }
+
+    .fast {
+      color: #8fdc9a;
+    }
+
+    .slow {
+      color: #ffb26b;
+    }
+
+    pre {
+      background: #12151c;
+      border: 1px solid #232833;
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      color: #b9c2d3;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <h1>WebGPU compute</h1>
+    <p>
+      No rendering on this page, just calculation. <a href="/">Back to the cubes</a>, or the
+      <a href="/talk/">talk</a>.
+    </p>
+
+    <h2>1. The idea: one thread per element</h2>
+    <p>
+      The GPU runs one thread per number, each thread squares its own element and writes down which
+      workgroup and thread it was, so you can see the work being split up. Twenty numbers is far too
+      small to be worth sending to a GPU. It is here only to show the shape of the thing.
+    </p>
+    <div class="row" id="inputs"></div>
+    <div class="row"><button id="run-squares">Run on GPU</button></div>
+    <p class="status" id="squares-status"></p>
+    <div class="grid" id="results"></div>
+    <pre id="squares-shader"></pre>
+
+    <h2>2. The point: the same idea, a million times over</h2>
+    <p>
+      Every pixel of a Mandelbrot zoom is an independent loop of up to a few hundred multiplications,
+      which is exactly the shape the GPU wants: identical work, no communication, one thread per
+      pixel. Same maths in both cases, run both and compare. The GPU time includes uploading the
+      parameters and reading every pixel back to the CPU. The CPU run freezes the page while it
+      works, which is a fair part of the comparison.
+    </p>
+    <div class="row">
+      <label for="size">pixels</label>
+      <select id="size">
+        <option value="512">512 x 512</option>
+        <option value="1024" selected>1024 x 1024</option>
+        <option value="2048">2048 x 2048</option>
+      </select>
+      <label for="iterations">max iterations</label>
+      <select id="iterations">
+        <option value="128">128</option>
+        <option value="512">512</option>
+        <option value="2000" selected>2000</option>
+      </select>
+      <button id="run-gpu">Run on GPU</button>
+      <button id="run-cpu" class="secondary">Run on CPU</button>
+    </div>
+    <p class="status" id="bench-status"></p>
+    <table id="bench-table" hidden>
+      <tr><th>where</th><th>time</th><th>pixels per second</th></tr>
+      <tr><td>GPU, maths only</td><td id="gpu-compute">-</td><td id="gpu-compute-rate">-</td></tr>
+      <tr><td>GPU, including readback</td><td id="gpu-total">-</td><td id="gpu-total-rate">-</td></tr>
+      <tr><td>CPU</td><td id="cpu-time">-</td><td id="cpu-time-rate">-</td></tr>
+      <tr><td>speedup</td><td id="speedup" colspan="2">run both to compare</td></tr>
+    </table>
+    <p class="meta" id="agreement"></p>
+    <div class="row"><canvas id="canvas"></canvas></div>
+    <pre id="mandelbrot-shader"></pre>
+  </main>
+  <script type="module" src="/src/compute/main.ts"></script>
+</body>
+
+</html>
