@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WebGPU, a talk</title>
+  <title>WebGPU, BBL</title>
 </head>
 
 <body>
@@ -12,17 +12,13 @@
   <div id="deck">
 
     <section class="slide" data-title="Title">
-      <h1>WebGPU</h1>
+      <h1>WebGPU - Triangles, Fragments and more??</h1>
       <p class="lead">Running code on the graphics card, from a browser tab, in TypeScript.</p>
       <p>
-        There are diagrams throughout and two live demos running alongside: a page of spinning
-        cubes for the drawing half, and a compute page that races the same maths on the GPU and the
-        CPU. Both are linked in the footer and open in another tab, so nothing here is a surprise.
-        Go and break them whenever you like.
+        Two live example demos and something else?
       </p>
-      <h3>The words, up front</h3>
-      <p>Every term on the next 18 slides, in one place. Come back here whenever one stops
-        making sense.</p>
+      <h3>Glossary</h3>
+
       <table>
         <tr>
           <th>Word</th>
@@ -107,7 +103,8 @@
       <h2>What is WebGPU</h2>
       <p class="lead">A browser API for talking to the GPU directly.</p>
       <ul>
-        <li><b>It is a standard.</b> A W3C spec, not a library. Shipping in Chrome and Edge 113+, Firefox 141+ and
+        <li><b>It is a standard.</b> A W3C spec, not a library. Shipping in Chrome and Edge 113+, Firefox 141+ (just
+          nightly for now) and
           Safari 26+.</li>
         <li><b>It is a thin layer.</b> Your calls map onto Vulkan on Linux and Android, Metal on Apple, D3D12 on
           Windows. The browser translates, it does not emulate.</li>
